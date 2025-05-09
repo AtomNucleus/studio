@@ -10,7 +10,7 @@ import VisionSpendLogo from '@/components/icons/VisionSpendLogo';
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from '@/components/ui/button';
 import { Moon, Sun } from 'lucide-react';
-import { useTheme } from 'next-themes'; // Assuming next-themes is or can be installed for theme toggling
+import { useTheme } from 'next-themes'; 
 
 export default function Home() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -22,17 +22,24 @@ export default function Home() {
   const [dateRange, setDateRange] = useState<{ from?: Date; to?: Date }>({});
   const [sortDescriptor, setSortDescriptor] = useState<{ column: keyof Transaction | null; direction: 'asc' | 'desc' } | null>({ column: 'date', direction: 'desc' });
   
-  // Theme Toggle (Example, next-themes would need to be set up)
-  // For now, this is a placeholder if next-themes isn't part of the base scaffold.
-  // If you have `ThemeProvider` from `next-themes` in `layout.tsx` or a providers file, this works.
-  // const { theme, setTheme } = useTheme();
-  // For now, let's make a dummy toggle:
+  const { theme, setTheme } = useTheme();
+  
+  // Local state to track current theme to avoid hydration issues with useTheme initially
   const [currentTheme, setCurrentTheme] = useState<'light' | 'dark'>('light');
+
+  useEffect(() => {
+    // Set the initial theme based on system preference or stored theme
+    // This helps ensure the button icon is correct on initial load
+    // It relies on ThemeProvider from next-themes being set up in layout or providers
+    const storedTheme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    setCurrentTheme(storedTheme as 'light' | 'dark');
+  }, []);
+  
+
   const toggleTheme = () => {
-    // This is a mock. For real theme toggling, use next-themes.
-    const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-    setCurrentTheme(newTheme);
-    document.documentElement.classList.toggle('dark', newTheme === 'dark');
+    const newTheme = theme === 'light' ? 'dark' : 'light';
+    setTheme(newTheme);
+    setCurrentTheme(newTheme); // Keep local state in sync for immediate UI update of icon
   };
 
 

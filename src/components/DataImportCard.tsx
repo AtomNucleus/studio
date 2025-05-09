@@ -1,3 +1,4 @@
+
 'use client';
 
 import type { ChangeEvent } from 'react';
@@ -55,7 +56,7 @@ export default function DataImportCard({ onTransactionsUploaded }: DataImportCar
     setError(null);
 
     try {
-      const fileContent = await selectedFile.readAsText();
+      const fileContent = await selectedFile.text(); // Changed from readAsText() to text()
       let parsedTransactions: Transaction[] = [];
 
       if (selectedFile.name.endsWith('.csv') || selectedFile.type === 'text/csv') {
