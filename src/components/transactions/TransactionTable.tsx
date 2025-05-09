@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { ArrowUpDown, CalendarIcon, FilterIcon, SearchIcon, Edit3Icon } from 'lucide-react';
+import { ArrowUpDown, CalendarIcon, FilterIcon, SearchIcon, Edit3Icon, DownloadIcon } from 'lucide-react';
 import { 
   DropdownMenu, 
   DropdownMenuTrigger, 
@@ -34,7 +34,8 @@ interface TransactionTableProps {
   onTransactionFieldUpdate: (transactionId: string, field: 'date' | 'description' | 'amount', value: any) => void;
 }
 
-const CATEGORIES = ["Food & Drink", "Groceries", "Transport", "Housing", "Income", "Entertainment", "Shopping", "Utilities", "Healthcare", "Miscellaneous", "Uncategorized", "Transfer/Income", "Bills", "Subscriptions", "Travel", "Gifts", "Personal Care", "Education", "Business"];
+const CATEGORIES = ["Food & Drink", "Groceries", "Transport", "Housing", "Income", "Entertainment", "Shopping", "Utilities", "Healthcare", "Miscellaneous", "Uncategorized", "Transfer/Income", "Bills", "Subscriptions", "Travel", "Gifts", "Personal Care", "Education", "Business", "Donation", "Food/Restaurant", "Bill Payment", "Subscription/Bill", "Pharmacy/Health", "Food/Groceries", "Income/Payroll", "Fee Reversal", "Bill Payment/Loan", "Shopping/General", "Shopping/Convenience", "Entertainment/Food", "Gas/Automotive", "Giving/Donations", "Other", "Food & Dining", "Subscription & Software", "Bills & Payments"];
+
 
 type EditableCell = {
   id: string;
@@ -66,7 +67,7 @@ export default function TransactionTable({
   const uniqueCategoriesForFilter = useMemo(() => {
     const cats = new Set(transactions.map(t => t.category));
     const combined = new Set([...CATEGORIES, ...Array.from(cats)]);
-    return ["all", ...Array.from(combined).sort()];
+    return ["all", ...Array.from(combined).filter(Boolean).sort()];
   }, [transactions]);
 
   const displayedTransactions = useMemo(() => {
@@ -109,23 +110,19 @@ export default function TransactionTable({
     let valueToSave: string | number | Date = currentEditValue;
 
     if (column === 'date') {
-      // The input type="date" provides value in 'yyyy-MM-dd'
-      // Adding time part to ensure local timezone interpretation if new Date() is used directly
-      // Or, better, use parseISO for robustness if date-fns is available
       try {
         valueToSave = parseISO(currentEditValue as string); 
         if (isNaN(valueToSave.getTime())) throw new Error("Invalid date");
       } catch {
-         // fallback or error handling
          console.error("Invalid date format:", currentEditValue);
-         setEditingCell(null); // Cancel edit on error
+         setEditingCell(null); 
          return;
       }
     } else if (column === 'amount') {
       valueToSave = parseFloat(currentEditValue as string);
       if (isNaN(valueToSave as number)) {
         console.error("Invalid amount:", currentEditValue);
-        setEditingCell(null); // Cancel edit on error
+        setEditingCell(null); 
         return;
       }
     }
@@ -147,13 +144,54 @@ export default function TransactionTable({
   };
   
   const handleInputBlur = () => {
-    // Delay save on blur slightly to allow click on other elements (e.g. calendar)
-    // without instantly saving if input is for date.
-    // For simple text/number, direct save is fine.
-    // if (editingCell && editingCell.column !== 'date') { // Or more robust focus management
-       saveEdit();
-    // }
+    // If editing cell is date, don't save on blur, allow calendar interaction
+    if (editingCell && editingCell.column === 'date') {
+      // Check if the new value is different or still default before saving.
+      // This logic might need to be more robust depending on how calendar updates state.
+      const originalTransaction = transactions.find(t => t.id === editingCell.id);
+      if (originalTransaction && format(new Date(originalTransaction.date), 'yyyy-MM-dd') !== currentEditValue) {
+        saveEdit();
+      } else if (!originalTransaction) { // New transaction maybe? Not applicable here.
+        saveEdit();
+      }
+      // Otherwise, if it's not a date or value hasn't changed from a valid original,
+      // we might not want to save, or handle specific blur scenarios.
+      // For simplicity now, if it's not date, we save.
+      return; 
+    }
+    saveEdit();
   };
+
+  const handleDownloadCSV = useCallback(() => {
+    const csvRows = [];
+    // Add header row
+    const headers = ['Date', 'Description', 'Category', 'Amount'];
+    csvRows.push(headers.join(','));
+
+    // Add data rows
+    for (const transaction of displayedTransactions) {
+      const date = format(new Date(transaction.date), 'yyyy-MM-dd');
+      // Escape commas and quotes in description and category
+      const description = `"${transaction.description.replace(/"/g, '""')}"`;
+      const category = `"${(transaction.category || '').replace(/"/g, '""')}"`;
+      const amount = transaction.amount.toString();
+      csvRows.push([date, description, category, amount].join(','));
+    }
+
+    const csvString = csvRows.join('\n');
+    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    if (link.download !== undefined) { // Feature detection
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', 'transactions.csv');
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+  }, [displayedTransactions]);
 
 
   return (
@@ -185,7 +223,10 @@ export default function TransactionTable({
               <Calendar
                 mode="single"
                 selected={dateFrom}
-                onSelect={handleDateFromChange}
+                onSelect={(date) => {
+                  handleDateFromChange(date);
+                  if(editingCell?.column === 'date') saveEdit(); // Save if editing date cell
+                }}
                 initialFocus
               />
             </PopoverContent>
@@ -202,7 +243,10 @@ export default function TransactionTable({
               <Calendar
                 mode="single"
                 selected={dateTo}
-                onSelect={handleDateToChange}
+                onSelect={(date) => {
+                  handleDateToChange(date);
+                  if(editingCell?.column === 'date') saveEdit(); // Save if editing date cell
+                }}
                 initialFocus
               />
             </PopoverContent>
@@ -242,7 +286,13 @@ export default function TransactionTable({
             <TableBody>
               {displayedTransactions.length > 0 ? (
                 displayedTransactions.map((transaction) => (
-                  <TableRow key={transaction.id}>
+                  <TableRow 
+                    key={transaction.id} 
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      // Could open custom context menu here for more advanced editing if DropdownMenu is not sufficient
+                    }}
+                  >
                     <TableCell 
                       className="cursor-cell"
                       onClick={() => !editingCell && startEditing(transaction.id, 'date', transaction.date)}
@@ -273,7 +323,7 @@ export default function TransactionTable({
                           onBlur={handleInputBlur}
                           onKeyDown={handleInputKeyDown}
                           autoFocus
-                          className="h-8 text-sm p-1"
+                          className="h-8 text-sm p-1 w-full"
                         />
                       ) : (
                         transaction.description
@@ -284,10 +334,10 @@ export default function TransactionTable({
                         <DropdownMenuTrigger asChild>
                           <Button 
                             variant="ghost" 
-                            className="w-full h-auto p-0 justify-start font-normal group hover:bg-accent/50 data-[state=open]:bg-accent/50"
+                            className="w-full h-auto p-1 text-left justify-start font-normal group hover:bg-accent/50 data-[state=open]:bg-accent/50"
                           >
-                            {transaction.category}
-                            <Edit3Icon className="ml-2 h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity duration-150" />
+                            <span className="truncate flex-grow">{transaction.category || 'Uncategorized'}</span>
+                            <Edit3Icon className="ml-auto h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-150 flex-shrink-0" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="start" className="w-56 max-h-60 overflow-y-auto">
@@ -297,7 +347,7 @@ export default function TransactionTable({
                             value={transaction.category} 
                             onValueChange={(newCategory) => onTransactionCategoryChange(transaction.id, newCategory)}
                           >
-                            {CATEGORIES.sort().map((cat) => (
+                            {CATEGORIES.filter(Boolean).sort().map((cat) => (
                               <DropdownMenuRadioItem key={cat} value={cat}>
                                 {cat}
                               </DropdownMenuRadioItem>
@@ -310,14 +360,15 @@ export default function TransactionTable({
                       className={cn(
                         "text-right font-semibold cursor-cell",
                         editingCell?.id !== transaction.id || editingCell?.column !== 'amount' 
-                          ? (transaction.amount < 0 ? 'text-destructive' : 'text-green-600')
-                          : '' // No color change during edit unless specific styling is needed for input
+                          ? (transaction.amount < 0 ? 'text-destructive' : 'text-green-600 dark:text-green-500')
+                          : ''
                       )}
                       onClick={() => !editingCell && startEditing(transaction.id, 'amount', transaction.amount)}
                     >
                       {editingCell?.id === transaction.id && editingCell?.column === 'amount' ? (
                         <Input
                           type="number"
+                          step="0.01"
                           value={currentEditValue as number}
                           onChange={handleEditValueChange}
                           onBlur={handleInputBlur}
@@ -341,10 +392,17 @@ export default function TransactionTable({
             </TableBody>
           </Table>
         </div>
-         {displayedTransactions.length > 0 && (
-          <p className="text-sm text-muted-foreground mt-2">Showing {displayedTransactions.length} transactions.</p>
-        )}
+        <div className="mt-4 flex flex-col sm:flex-row justify-between items-center gap-2">
+            {displayedTransactions.length > 0 && (
+            <p className="text-sm text-muted-foreground">Showing {displayedTransactions.length} transactions.</p>
+            )}
+            <Button onClick={handleDownloadCSV} variant="outline" size="sm" disabled={displayedTransactions.length === 0}>
+                <DownloadIcon className="mr-2 h-4 w-4" />
+                Download CSV
+            </Button>
+        </div>
       </CardContent>
     </Card>
   );
 }
+
