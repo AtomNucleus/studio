@@ -26,38 +26,35 @@ export default function Home() {
   const { theme, setTheme } = useTheme();
   const { toast } = useToast();
   
-  // Local state to track current theme to avoid hydration issues with useTheme initially
   const [currentTheme, setCurrentTheme] = useState<'light' | 'dark'>('light');
 
   useEffect(() => {
-    // Set the initial theme based on system preference or stored theme
-    // This helps ensure the button icon is correct on initial load
-    // It relies on ThemeProvider from next-themes being set up in layout or providers
     const storedTheme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
     setCurrentTheme(storedTheme as 'light' | 'dark');
-  }, []);
+    // Sync next-themes' internal state if it's different
+    if (theme !== storedTheme) {
+      setTheme(storedTheme as 'light' | 'dark');
+    }
+  }, [theme, setTheme]);
   
 
   const toggleTheme = () => {
-    const newTheme = theme === 'light' ? 'dark' : 'light';
+    const newTheme = currentTheme === 'light' ? 'dark' : 'light';
     setTheme(newTheme);
-    setCurrentTheme(newTheme); // Keep local state in sync for immediate UI update of icon
+    setCurrentTheme(newTheme);
   };
 
 
   useEffect(() => {
     setClientMounted(true);
-    // Simulate initial loading if necessary, or remove if data loads quickly
     setTimeout(() => setIsLoading(false), 500); 
   }, []);
 
   const handleTransactionsUploaded = useCallback((newTransactions: Transaction[]) => {
     setTransactions(prev => {
-      // Avoid duplicates by checking IDs if parsers guarantee unique IDs for a session or use content hash
       const existingIds = new Set(prev.map(t => t.id));
       const uniqueNewTransactions = newTransactions.filter(t => !existingIds.has(t.id));
       const combined = [...prev, ...uniqueNewTransactions];
-      // Sort by date descending by default
       return combined.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     });
   }, []);
@@ -73,6 +70,29 @@ export default function Home() {
       description: `Transaction category changed to ${newCategory}.`,
     });
   }, [toast]);
+
+  const handleTransactionFieldUpdate = useCallback((transactionId: string, field: 'date' | 'description' | 'amount', value: any) => {
+    setTransactions(prevTransactions =>
+      prevTransactions.map(t => {
+        if (t.id === transactionId) {
+          let newValue = value;
+          if (field === 'date') {
+            // Ensure value is a valid date string before creating new Date
+            newValue = new Date(value && typeof value === 'string' ? value.replace(/-/g, '/') : value);
+          } else if (field === 'amount') {
+            newValue = parseFloat(value);
+          }
+          return { ...t, [field]: newValue };
+        }
+        return t;
+      })
+    );
+    toast({
+      title: "Transaction Updated",
+      description: `Transaction ${field} has been updated.`,
+    });
+  }, [toast]);
+
 
   const filteredAndSortedTransactions = useMemo(() => {
     let items = [...transactions];
@@ -104,7 +124,7 @@ export default function Home() {
           comparison = valA - valB;
         } else if (valA instanceof Date && valB instanceof Date) {
           comparison = valA.getTime() - valB.getTime();
-        } else { // Fallback for mixed or undefined types
+        } else { 
             if (valA === undefined || valA === null) comparison = -1;
             else if (valB === undefined || valB === null) comparison = 1;
             else comparison = String(valA).localeCompare(String(valB));
@@ -160,6 +180,7 @@ export default function Home() {
               onSortChange={setSortDescriptor}
               currentSortDescriptor={sortDescriptor}
               onTransactionCategoryChange={handleTransactionCategoryChange}
+              onTransactionFieldUpdate={handleTransactionFieldUpdate}
             />
           </>
         )}

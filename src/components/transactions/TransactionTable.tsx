@@ -1,9 +1,9 @@
 
 'use client';
 
-import type { ChangeEvent } from 'react';
-import { useState, useMemo } from 'react';
-import { format } from 'date-fns';
+import type { ChangeEvent, KeyboardEvent } from 'react';
+import { useState, useMemo, useCallback } from 'react';
+import { format, parseISO } from 'date-fns';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -22,6 +22,7 @@ import {
   DropdownMenuSeparator
 } from '@/components/ui/dropdown-menu';
 import type { Transaction } from './types';
+import { cn } from '@/lib/utils';
 
 interface TransactionTableProps {
   transactions: Transaction[];
@@ -30,9 +31,15 @@ interface TransactionTableProps {
   onSortChange: (descriptor: { column: keyof Transaction | null; direction: 'asc' | 'desc' } | null) => void;
   currentSortDescriptor: { column: keyof Transaction | null; direction: 'asc' | 'desc' } | null;
   onTransactionCategoryChange: (transactionId: string, newCategory: string) => void;
+  onTransactionFieldUpdate: (transactionId: string, field: 'date' | 'description' | 'amount', value: any) => void;
 }
 
 const CATEGORIES = ["Food & Drink", "Groceries", "Transport", "Housing", "Income", "Entertainment", "Shopping", "Utilities", "Healthcare", "Miscellaneous", "Uncategorized", "Transfer/Income", "Bills", "Subscriptions", "Travel", "Gifts", "Personal Care", "Education", "Business"];
+
+type EditableCell = {
+  id: string;
+  column: 'date' | 'description' | 'amount';
+} | null;
 
 
 export default function TransactionTable({ 
@@ -41,32 +48,32 @@ export default function TransactionTable({
   onDateRangeChange,
   onSortChange,
   currentSortDescriptor,
-  onTransactionCategoryChange
+  onTransactionCategoryChange,
+  onTransactionFieldUpdate
 }: TransactionTableProps) {
   const [internalSearchTerm, setInternalSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [dateFrom, setDateFrom] = useState<Date | undefined>();
   const [dateTo, setDateTo] = useState<Date | undefined>();
 
+  const [editingCell, setEditingCell] = useState<EditableCell>(null);
+  const [currentEditValue, setCurrentEditValue] = useState<string | number>('');
+
   const handleSort = (column: keyof Transaction) => {
-    const direction = currentSortDescriptor && currentSortDescriptor.column === column && currentSortDescriptor.direction === 'asc' ? 'desc' : 'asc';
-    onSortChange({ column, direction });
+    onSortChange({ column, direction: currentSortDescriptor?.column === column && currentSortDescriptor.direction === 'asc' ? 'desc' : 'asc' });
   };
   
   const uniqueCategoriesForFilter = useMemo(() => {
     const cats = new Set(transactions.map(t => t.category));
-    // Combine with predefined CATEGORIES to ensure all are available for filtering, then sort
     const combined = new Set([...CATEGORIES, ...Array.from(cats)]);
     return ["all", ...Array.from(combined).sort()];
   }, [transactions]);
-
 
   const displayedTransactions = useMemo(() => {
     return transactions.filter(t => 
       categoryFilter === 'all' || (t.category && t.category.toLowerCase() === categoryFilter.toLowerCase())
     );
   }, [transactions, categoryFilter]);
-
 
   const handleSearchChange = (event: ChangeEvent<HTMLInputElement>) => {
     setInternalSearchTerm(event.target.value);
@@ -82,6 +89,72 @@ export default function TransactionTable({
     setDateTo(date);
     onDateRangeChange({ from: dateFrom, to: date });
   };
+
+  const startEditing = useCallback((transactionId: string, column: 'date' | 'description' | 'amount', currentValue: any) => {
+    setEditingCell({ id: transactionId, column });
+    if (column === 'date' && currentValue instanceof Date) {
+      setCurrentEditValue(format(currentValue, 'yyyy-MM-dd'));
+    } else {
+      setCurrentEditValue(currentValue);
+    }
+  }, []);
+
+  const handleEditValueChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setCurrentEditValue(e.target.value);
+  };
+
+  const saveEdit = useCallback(() => {
+    if (!editingCell) return;
+    const { id, column } = editingCell;
+    let valueToSave: string | number | Date = currentEditValue;
+
+    if (column === 'date') {
+      // The input type="date" provides value in 'yyyy-MM-dd'
+      // Adding time part to ensure local timezone interpretation if new Date() is used directly
+      // Or, better, use parseISO for robustness if date-fns is available
+      try {
+        valueToSave = parseISO(currentEditValue as string); 
+        if (isNaN(valueToSave.getTime())) throw new Error("Invalid date");
+      } catch {
+         // fallback or error handling
+         console.error("Invalid date format:", currentEditValue);
+         setEditingCell(null); // Cancel edit on error
+         return;
+      }
+    } else if (column === 'amount') {
+      valueToSave = parseFloat(currentEditValue as string);
+      if (isNaN(valueToSave as number)) {
+        console.error("Invalid amount:", currentEditValue);
+        setEditingCell(null); // Cancel edit on error
+        return;
+      }
+    }
+    
+    onTransactionFieldUpdate(id, column, valueToSave);
+    setEditingCell(null);
+  }, [editingCell, currentEditValue, onTransactionFieldUpdate]);
+
+  const cancelEdit = useCallback(() => {
+    setEditingCell(null);
+  }, []);
+
+  const handleInputKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      saveEdit();
+    } else if (e.key === 'Escape') {
+      cancelEdit();
+    }
+  };
+  
+  const handleInputBlur = () => {
+    // Delay save on blur slightly to allow click on other elements (e.g. calendar)
+    // without instantly saving if input is for date.
+    // For simple text/number, direct save is fine.
+    // if (editingCell && editingCell.column !== 'date') { // Or more robust focus management
+       saveEdit();
+    // }
+  };
+
 
   return (
     <Card className="w-full glassmorphic">
@@ -170,8 +243,42 @@ export default function TransactionTable({
               {displayedTransactions.length > 0 ? (
                 displayedTransactions.map((transaction) => (
                   <TableRow key={transaction.id}>
-                    <TableCell>{format(new Date(transaction.date), 'PP')}</TableCell>
-                    <TableCell className="font-medium">{transaction.description}</TableCell>
+                    <TableCell 
+                      className="cursor-cell"
+                      onClick={() => !editingCell && startEditing(transaction.id, 'date', transaction.date)}
+                    >
+                      {editingCell?.id === transaction.id && editingCell?.column === 'date' ? (
+                        <Input
+                          type="date"
+                          value={currentEditValue as string}
+                          onChange={handleEditValueChange}
+                          onBlur={handleInputBlur}
+                          onKeyDown={handleInputKeyDown}
+                          autoFocus
+                          className="h-8 text-sm p-1"
+                        />
+                      ) : (
+                        format(new Date(transaction.date), 'PP')
+                      )}
+                    </TableCell>
+                    <TableCell 
+                      className="font-medium cursor-cell"
+                      onClick={() => !editingCell && startEditing(transaction.id, 'description', transaction.description)}
+                    >
+                       {editingCell?.id === transaction.id && editingCell?.column === 'description' ? (
+                        <Input
+                          type="text"
+                          value={currentEditValue as string}
+                          onChange={handleEditValueChange}
+                          onBlur={handleInputBlur}
+                          onKeyDown={handleInputKeyDown}
+                          autoFocus
+                          className="h-8 text-sm p-1"
+                        />
+                      ) : (
+                        transaction.description
+                      )}
+                    </TableCell>
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -183,7 +290,7 @@ export default function TransactionTable({
                             <Edit3Icon className="ml-2 h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity duration-150" />
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start" className="w-56">
+                        <DropdownMenuContent align="start" className="w-56 max-h-60 overflow-y-auto">
                           <DropdownMenuLabel>Change Category</DropdownMenuLabel>
                           <DropdownMenuSeparator />
                           <DropdownMenuRadioGroup 
@@ -199,8 +306,28 @@ export default function TransactionTable({
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
-                    <TableCell className={`text-right font-semibold ${transaction.amount < 0 ? 'text-destructive' : 'text-green-600'}`}>
-                      {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(transaction.amount)}
+                    <TableCell 
+                      className={cn(
+                        "text-right font-semibold cursor-cell",
+                        editingCell?.id !== transaction.id || editingCell?.column !== 'amount' 
+                          ? (transaction.amount < 0 ? 'text-destructive' : 'text-green-600')
+                          : '' // No color change during edit unless specific styling is needed for input
+                      )}
+                      onClick={() => !editingCell && startEditing(transaction.id, 'amount', transaction.amount)}
+                    >
+                      {editingCell?.id === transaction.id && editingCell?.column === 'amount' ? (
+                        <Input
+                          type="number"
+                          value={currentEditValue as number}
+                          onChange={handleEditValueChange}
+                          onBlur={handleInputBlur}
+                          onKeyDown={handleInputKeyDown}
+                          autoFocus
+                          className="h-8 text-sm p-1 text-right"
+                        />
+                      ) : (
+                        new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(transaction.amount)
+                      )}
                     </TableCell>
                   </TableRow>
                 ))
@@ -221,4 +348,3 @@ export default function TransactionTable({
     </Card>
   );
 }
-
