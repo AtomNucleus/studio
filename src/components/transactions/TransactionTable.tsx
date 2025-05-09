@@ -177,10 +177,10 @@ export default function TransactionTable({
                         <DropdownMenuTrigger asChild>
                           <Button 
                             variant="ghost" 
-                            className="w-full h-auto p-0 justify-start font-normal hover:bg-accent/50 data-[state=open]:bg-accent/50"
+                            className="w-full h-auto p-0 justify-start font-normal group hover:bg-accent/50 data-[state=open]:bg-accent/50"
                           >
                             {transaction.category}
-                            <Edit3Icon className="ml-2 h-3 w-3 text-muted-foreground opacity-50 group-hover:opacity-100" />
+                            <Edit3Icon className="ml-2 h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity duration-150" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="start" className="w-56">
@@ -221,3 +221,4 @@ export default function TransactionTable({
     </Card>
   );
 }
+
