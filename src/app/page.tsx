@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from '@/components/ui/button';
 import { Moon, Sun } from 'lucide-react';
 import { useTheme } from 'next-themes'; 
+import { useToast } from "@/hooks/use-toast";
 
 export default function Home() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -23,6 +24,7 @@ export default function Home() {
   const [sortDescriptor, setSortDescriptor] = useState<{ column: keyof Transaction | null; direction: 'asc' | 'desc' } | null>({ column: 'date', direction: 'desc' });
   
   const { theme, setTheme } = useTheme();
+  const { toast } = useToast();
   
   // Local state to track current theme to avoid hydration issues with useTheme initially
   const [currentTheme, setCurrentTheme] = useState<'light' | 'dark'>('light');
@@ -59,6 +61,18 @@ export default function Home() {
       return combined.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     });
   }, []);
+
+  const handleTransactionCategoryChange = useCallback((transactionId: string, newCategory: string) => {
+    setTransactions(prevTransactions =>
+      prevTransactions.map(t =>
+        t.id === transactionId ? { ...t, category: newCategory } : t
+      )
+    );
+    toast({
+      title: "Category Updated",
+      description: `Transaction category changed to ${newCategory}.`,
+    });
+  }, [toast]);
 
   const filteredAndSortedTransactions = useMemo(() => {
     let items = [...transactions];
@@ -145,6 +159,7 @@ export default function Home() {
               onDateRangeChange={setDateRange}
               onSortChange={setSortDescriptor}
               currentSortDescriptor={sortDescriptor}
+              onTransactionCategoryChange={handleTransactionCategoryChange}
             />
           </>
         )}

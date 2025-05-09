@@ -1,3 +1,4 @@
+
 'use client';
 
 import type { ChangeEvent } from 'react';
@@ -10,7 +11,16 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { ArrowUpDown, CalendarIcon, FilterIcon, SearchIcon } from 'lucide-react';
+import { ArrowUpDown, CalendarIcon, FilterIcon, SearchIcon, Edit3Icon } from 'lucide-react';
+import { 
+  DropdownMenu, 
+  DropdownMenuTrigger, 
+  DropdownMenuContent, 
+  DropdownMenuRadioGroup, 
+  DropdownMenuRadioItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator
+} from '@/components/ui/dropdown-menu';
 import type { Transaction } from './types';
 
 interface TransactionTableProps {
@@ -19,9 +29,10 @@ interface TransactionTableProps {
   onDateRangeChange: (range: { from?: Date; to?: Date }) => void;
   onSortChange: (descriptor: { column: keyof Transaction | null; direction: 'asc' | 'desc' } | null) => void;
   currentSortDescriptor: { column: keyof Transaction | null; direction: 'asc' | 'desc' } | null;
+  onTransactionCategoryChange: (transactionId: string, newCategory: string) => void;
 }
 
-const CATEGORIES = ["Food & Drink", "Groceries", "Transport", "Housing", "Income", "Entertainment", "Shopping", "Utilities", "Healthcare", "Miscellaneous", "Uncategorized"];
+const CATEGORIES = ["Food & Drink", "Groceries", "Transport", "Housing", "Income", "Entertainment", "Shopping", "Utilities", "Healthcare", "Miscellaneous", "Uncategorized", "Transfer/Income", "Bills", "Subscriptions", "Travel", "Gifts", "Personal Care", "Education", "Business"];
 
 
 export default function TransactionTable({ 
@@ -29,7 +40,8 @@ export default function TransactionTable({
   onSearchTermChange,
   onDateRangeChange,
   onSortChange,
-  currentSortDescriptor
+  currentSortDescriptor,
+  onTransactionCategoryChange
 }: TransactionTableProps) {
   const [internalSearchTerm, setInternalSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
@@ -41,15 +53,17 @@ export default function TransactionTable({
     onSortChange({ column, direction });
   };
   
-  const uniqueCategories = useMemo(() => {
+  const uniqueCategoriesForFilter = useMemo(() => {
     const cats = new Set(transactions.map(t => t.category));
-    return ["all", ...Array.from(cats).sort()];
+    // Combine with predefined CATEGORIES to ensure all are available for filtering, then sort
+    const combined = new Set([...CATEGORIES, ...Array.from(cats)]);
+    return ["all", ...Array.from(combined).sort()];
   }, [transactions]);
 
 
   const displayedTransactions = useMemo(() => {
     return transactions.filter(t => 
-      categoryFilter === 'all' || t.category.toLowerCase() === categoryFilter.toLowerCase()
+      categoryFilter === 'all' || (t.category && t.category.toLowerCase() === categoryFilter.toLowerCase())
     );
   }, [transactions, categoryFilter]);
 
@@ -127,7 +141,7 @@ export default function TransactionTable({
               <SelectValue placeholder="Filter by category" />
             </SelectTrigger>
             <SelectContent>
-              {uniqueCategories.map(cat => (
+              {uniqueCategoriesForFilter.map(cat => (
                 <SelectItem key={cat} value={cat}>{cat === 'all' ? 'All Categories' : cat}</SelectItem>
               ))}
             </SelectContent>
@@ -158,7 +172,33 @@ export default function TransactionTable({
                   <TableRow key={transaction.id}>
                     <TableCell>{format(new Date(transaction.date), 'PP')}</TableCell>
                     <TableCell className="font-medium">{transaction.description}</TableCell>
-                    <TableCell>{transaction.category}</TableCell>
+                    <TableCell>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button 
+                            variant="ghost" 
+                            className="w-full h-auto p-0 justify-start font-normal hover:bg-accent/50 data-[state=open]:bg-accent/50"
+                          >
+                            {transaction.category}
+                            <Edit3Icon className="ml-2 h-3 w-3 text-muted-foreground opacity-50 group-hover:opacity-100" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="w-56">
+                          <DropdownMenuLabel>Change Category</DropdownMenuLabel>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuRadioGroup 
+                            value={transaction.category} 
+                            onValueChange={(newCategory) => onTransactionCategoryChange(transaction.id, newCategory)}
+                          >
+                            {CATEGORIES.sort().map((cat) => (
+                              <DropdownMenuRadioItem key={cat} value={cat}>
+                                {cat}
+                              </DropdownMenuRadioItem>
+                            ))}
+                          </DropdownMenuRadioGroup>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
                     <TableCell className={`text-right font-semibold ${transaction.amount < 0 ? 'text-destructive' : 'text-green-600'}`}>
                       {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(transaction.amount)}
                     </TableCell>
